@@ -4,7 +4,6 @@ import { useState, useEffect } from "react";
 import Image from "next/image";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import LoadingScreen from "@/components/LoadingScreen";
 import { getVideos, getSettings, Video } from "@/lib/api-client";
 import Header from "@/components/Header";
 import VideoCard from "@/components/VideoCard";
@@ -12,20 +11,12 @@ import VideoPlayer from "@/components/VideoPlayer";
 import Footer from "@/components/Footer";
 
 export default function HomePage() {
-  const [hasEntered, setHasEntered] = useState(false);
-  const [isHydrated, setIsHydrated] = useState(false);
   const [videos, setVideos] = useState<Video[]>([]);
   const [aboutMe, setAboutMe] = useState("");
   const [activeVideoId, setActiveVideoId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // Hydrate state from sessionStorage and mark as hydrated
-    const entered = sessionStorage.getItem("site_entered") === "true";
-    setHasEntered(entered);
-    setIsHydrated(true);
-
-    // Load data from API
     Promise.all([getVideos(), getSettings()])
       .then(([videosData, settings]) => {
         setVideos(videosData.filter((v) => v.type === "video"));
@@ -37,25 +28,7 @@ export default function HomePage() {
       .finally(() => setIsLoading(false));
   }, []);
 
-  const handleEnter = () => {
-    sessionStorage.setItem("site_entered", "true");
-    setHasEntered(true);
-  };
-
   const activeVideo = videos.find((v) => v.id === activeVideoId);
-
-  // Prevent hydration mismatch by only rendering interactive content after hydration
-  if (!isHydrated) {
-    return (
-      <div className="min-h-screen bg-background">
-        {/* Placeholder during hydration */}
-      </div>
-    );
-  }
-
-  if (!hasEntered) {
-    return <LoadingScreen onEnter={handleEnter} />;
-  }
 
   return (
     <div className="min-h-screen bg-background">
