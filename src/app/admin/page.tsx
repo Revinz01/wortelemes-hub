@@ -152,6 +152,8 @@ export default function AdminPage() {
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [uploadComplete, setUploadComplete] = useState(false);
+  const [selectedImageFile, setSelectedImageFile] = useState<File | null>(null);
+  const [isAddingPortfolioItem, setIsAddingPortfolioItem] = useState(false);
 
   // Add-category form
   const [newCategory, setNewCategory] = useState("");
@@ -247,34 +249,11 @@ export default function AdminPage() {
 
   // ---------- Portfolio ----------
   const handleImageSelect = (file: File) => {
-    // Create local preview immediately
+    // Create local preview immediately, store file for upload on submit
     const previewUrl = URL.createObjectURL(file);
     setImagePreview(previewUrl);
     setUploadComplete(false);
-    // Start upload
-    handleImageUpload(file);
-  };
-
-  const handleImageUpload = async (file: File) => {
-    setIsUploadingImage(true);
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
-      const res = await fetch("/api/upload", {
-        method: "POST",
-        body: formData,
-      });
-      if (!res.ok) throw new Error("Upload failed");
-      const data = await res.json();
-      setNewPortfolioItem((prev) => ({ ...prev, url: data.url }));
-      setUploadComplete(true);
-      toast({ title: "Image uploaded successfully" });
-    } catch {
-      setImagePreview(null);
-      toast({ title: "Failed to upload image", variant: "destructive" });
-    } finally {
-      setIsUploadingImage(false);
-    }
+    setSelectedImageFile(file);
   };
 
   const clearImagePreview = () => {
@@ -283,10 +262,16 @@ export default function AdminPage() {
       setImagePreview(null);
     }
     setUploadComplete(false);
+    setSelectedImageFile(null);
   };
 
   const handleAddPortfolioItem = async () => {
-    if (!newPortfolioItem.url) {
+    // Validation
+    if (imageMode === "upload" && !selectedImageFile && !newPortfolioItem.url) {
+      toast({ title: "Image required", variant: "destructive" });
+      return;
+    }
+    if (imageMode === "url" && !newPortfolioItem.url) {
       toast({ title: "URL required", variant: "destructive" });
       return;
     }
@@ -298,10 +283,30 @@ export default function AdminPage() {
       toast({ title: "Description is required", variant: "destructive" });
       return;
     }
+
+    setIsAddingPortfolioItem(true);
     try {
+      let imageUrl = newPortfolioItem.url;
+
+      // Upload image together with submit if a file was selected
+      if (imageMode === "upload" && selectedImageFile) {
+        setIsUploadingImage(true);
+        const formData = new FormData();
+        formData.append("file", selectedImageFile);
+        const res = await fetch("/api/upload", {
+          method: "POST",
+          body: formData,
+        });
+        setIsUploadingImage(false);
+        if (!res.ok) throw new Error("Upload failed");
+        const data = await res.json();
+        imageUrl = data.url;
+        setUploadComplete(true);
+      }
+
       await createPortfolioItem({
         type: newPortfolioItem.type,
-        url: newPortfolioItem.url,
+        url: imageUrl,
         title: newPortfolioItem.title,
         description: newPortfolioItem.description,
         category: newPortfolioItem.category || undefined,
@@ -318,7 +323,10 @@ export default function AdminPage() {
       await loadData();
       toast({ title: "Portfolio item added" });
     } catch {
+      setIsUploadingImage(false);
       toast({ title: "Failed to add portfolio item", variant: "destructive" });
+    } finally {
+      setIsAddingPortfolioItem(false);
     }
   };
 
@@ -821,18 +829,14 @@ export default function AdminPage() {
                             const file = e.target.files?.[0];
                             if (file) handleImageSelect(file);
                           }}
-                          disabled={isUploadingImage}
+                          disabled={isAddingPortfolioItem}
                         />
                         {/* Image preview with grayscale → color animation */}
                         {imagePreview && (
                           <div className="relative w-full max-w-xs">
                             <div
                               className={`relative overflow-hidden rounded-lg border transition-all duration-700 ${
-                                isUploadingImage
-                                  ? "grayscale"
-                                  : uploadComplete
-                                    ? "grayscale-0"
-                                    : "grayscale"
+                                isUploadingImage ? "grayscale" : "grayscale-0"
                               }`}
                             >
                               <img
@@ -851,9 +855,9 @@ export default function AdminPage() {
                                 </div>
                               )}
                             </div>
-                            {uploadComplete && (
-                              <p className="text-xs text-green-600 dark:text-green-400 font-body mt-2 flex items-center gap-1">
-                                ✓ Image uploaded successfully
+                            {!isUploadingImage && (
+                              <p className="text-xs text-muted-foreground font-body mt-2 flex items-center gap-1">
+                                ✓ Image ready — will upload on submit
                               </p>
                             )}
                           </div>
@@ -915,10 +919,19 @@ export default function AdminPage() {
                 <Button
                   onClick={handleAddPortfolioItem}
                   className="font-body"
-                  disabled={isUploadingImage}
+                  disabled={isAddingPortfolioItem}
                 >
-                  <Plus className="w-4 h-4 mr-2" />
-                  Add Item
+                  {isAddingPortfolioItem ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      {isUploadingImage ? "Uploading image..." : "Adding..."}
+                    </>
+                  ) : (
+                    <>
+                      <Plus className="w-4 h-4 mr-2" />
+                      Add Item
+                    </>
+                  )}
                 </Button>
               </CardContent>
             </Card>

@@ -38,6 +38,8 @@ const EditPortfolioDialog = ({ item, onUpdate }: EditPortfolioDialogProps) => {
   const [isUploading, setIsUploading] = useState(false);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [uploadComplete, setUploadComplete] = useState(false);
+  const [selectedImageFile, setSelectedImageFile] = useState<File | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
   const [editData, setEditData] = useState({
     type: item.type,
     url: item.url,
@@ -60,6 +62,7 @@ const EditPortfolioDialog = ({ item, onUpdate }: EditPortfolioDialogProps) => {
       setImageMode("url");
       setImagePreview(null);
       setUploadComplete(false);
+      setSelectedImageFile(null);
     }
   }, [open, item]);
 
@@ -67,29 +70,7 @@ const EditPortfolioDialog = ({ item, onUpdate }: EditPortfolioDialogProps) => {
     const previewUrl = URL.createObjectURL(file);
     setImagePreview(previewUrl);
     setUploadComplete(false);
-    handleImageUpload(file);
-  };
-
-  const handleImageUpload = async (file: File) => {
-    setIsUploading(true);
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
-      const res = await fetch("/api/upload", {
-        method: "POST",
-        body: formData,
-      });
-      if (!res.ok) throw new Error("Upload failed");
-      const data = await res.json();
-      setEditData((prev) => ({ ...prev, url: data.url }));
-      setUploadComplete(true);
-      toast({ title: "Image uploaded successfully" });
-    } catch {
-      setImagePreview(null);
-      toast({ title: "Failed to upload image", variant: "destructive" });
-    } finally {
-      setIsUploading(false);
-    }
+    setSelectedImageFile(file); // Store file, upload happens on save
   };
 
   const clearImagePreview = () => {
@@ -98,10 +79,15 @@ const EditPortfolioDialog = ({ item, onUpdate }: EditPortfolioDialogProps) => {
       setImagePreview(null);
     }
     setUploadComplete(false);
+    setSelectedImageFile(null);
   };
 
   const handleSave = async () => {
-    if (!editData.url) {
+    if (imageMode === "upload" && !selectedImageFile && !editData.url) {
+      toast({ title: "Image is required", variant: "destructive" });
+      return;
+    }
+    if (imageMode === "url" && !editData.url) {
       toast({ title: "URL is required", variant: "destructive" });
       return;
     }
@@ -113,10 +99,30 @@ const EditPortfolioDialog = ({ item, onUpdate }: EditPortfolioDialogProps) => {
       toast({ title: "Description is required", variant: "destructive" });
       return;
     }
+
+    setIsSaving(true);
     try {
+      let imageUrl = editData.url;
+
+      // Upload image together with save if a new file was selected
+      if (imageMode === "upload" && selectedImageFile) {
+        setIsUploading(true);
+        const formData = new FormData();
+        formData.append("file", selectedImageFile);
+        const res = await fetch("/api/upload", {
+          method: "POST",
+          body: formData,
+        });
+        setIsUploading(false);
+        if (!res.ok) throw new Error("Upload failed");
+        const data = await res.json();
+        imageUrl = data.url;
+        setUploadComplete(true);
+      }
+
       await updatePortfolioItem(item.id, {
         type: editData.type,
-        url: editData.url,
+        url: imageUrl,
         title: editData.title,
         description: editData.description,
         category: editData.category || null,
@@ -125,7 +131,10 @@ const EditPortfolioDialog = ({ item, onUpdate }: EditPortfolioDialogProps) => {
       setOpen(false);
       onUpdate();
     } catch (error) {
+      setIsUploading(false);
       toast({ title: "Failed to update item", variant: "destructive" });
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -217,18 +226,14 @@ const EditPortfolioDialog = ({ item, onUpdate }: EditPortfolioDialogProps) => {
                       const file = e.target.files?.[0];
                       if (file) handleImageSelect(file);
                     }}
-                    disabled={isUploading}
+                    disabled={isSaving}
                   />
                   {/* Image preview with grayscale → color animation */}
                   {imagePreview && (
                     <div className="relative w-full max-w-xs">
                       <div
                         className={`relative overflow-hidden rounded-lg border transition-all duration-700 ${
-                          isUploading
-                            ? "grayscale"
-                            : uploadComplete
-                              ? "grayscale-0"
-                              : "grayscale"
+                          isUploading ? "grayscale" : "grayscale-0"
                         }`}
                       >
                         <img
@@ -247,9 +252,9 @@ const EditPortfolioDialog = ({ item, onUpdate }: EditPortfolioDialogProps) => {
                           </div>
                         )}
                       </div>
-                      {uploadComplete && (
-                        <p className="text-xs text-green-600 dark:text-green-400 font-body mt-2 flex items-center gap-1">
-                          ✓ Image uploaded successfully
+                      {!isUploading && (
+                        <p className="text-xs text-muted-foreground font-body mt-2 flex items-center gap-1">
+                          ✓ Image ready — will upload on save
                         </p>
                       )}
                     </div>
@@ -348,10 +353,17 @@ const EditPortfolioDialog = ({ item, onUpdate }: EditPortfolioDialogProps) => {
             </Button>
             <Button
               onClick={handleSave}
-              disabled={isUploading}
+              disabled={isSaving}
               className="font-body"
             >
-              Save Changes
+              {isSaving ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  {isUploading ? "Uploading..." : "Saving..."}
+                </>
+              ) : (
+                "Save Changes"
+              )}
             </Button>
           </div>
         </div>
